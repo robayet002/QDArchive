@@ -9,7 +9,7 @@ SEARCH_URL = "https://www.datafirst.uct.ac.za/dataportal/index.php/catalog/"
 # List of search queries
 SEARCH_QUERIES = [
 
-    "study time000000000000000000",
+    "student",
     
 ]
 
