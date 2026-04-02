@@ -7,7 +7,7 @@ BASE_URL = "https://dataverse.no"
 SEARCH_URL = "https://dataverse.no/dataverse/root/"
 
 SEARCH_QUERIES = [
-    "magic",
+    "student",
 ]
 
 
