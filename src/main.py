@@ -314,12 +314,12 @@ def extract_file_links_from_page(page_url: str) -> list[dict]:
 
     return results
 
-
 def process_record(record: dict, source_name: str):
     normalized = normalize_record(record, source_name)
 
     title = normalized["title"]
     source_url = normalized["source_url"]
+    direct_file_url = normalized["file_url"]
 
     if not title and not source_url:
         print(f"Skipping {source_name} record: missing title and URL")
@@ -327,24 +327,35 @@ def process_record(record: dict, source_name: str):
 
     record_id = normalized["record_id"]
 
-    safe_source = sanitize_filename(source_name.lower())
-    safe_record_id = sanitize_filename(record_id) if record_id else ""
-    safe_title = sanitize_filename(title) if title else "untitled"
+    file_links = []
 
-    if safe_record_id:
-        folder_name = f"{safe_record_id}_{safe_title}"
+    # Prefer direct download URL if scraper already found it
+    if direct_file_url and direct_file_url != source_url:
+        guessed_filename = sanitize_filename(title or record_id or "downloaded_file")
+        file_links = [{
+            "filename": guessed_filename,
+            "url": direct_file_url
+        }]
     else:
-        folder_name = safe_title[:100] if safe_title else "unknown_record"
-
-    folder_name = folder_name[:150].rstrip(". ")
-    record_folder = DOWNLOAD_DIR / safe_source / folder_name
-    record_folder.mkdir(parents=True, exist_ok=True)
-
-    file_links = extract_file_links_from_page(source_url)
+        file_links = extract_file_links_from_page(source_url)
 
     if not file_links:
         print(f"No downloadable files found on [{source_name}] record page: {source_url}")
         return
+
+    safe_source = sanitize_filename(source_name.lower())
+    safe_record_id = sanitize_filename(record_id)[:60] if record_id else ""
+    safe_title = sanitize_filename(title)[:60] if title else "untitled"
+
+    # Keep folder name short to avoid Windows path-length errors
+    if safe_record_id:
+        folder_name = safe_record_id
+    else:
+        folder_name = safe_title if safe_title else "unknown_record"
+
+    folder_name = folder_name[:80].rstrip(". ")
+    record_folder = DOWNLOAD_DIR / safe_source / folder_name
+    record_folder.mkdir(parents=True, exist_ok=True)
 
     print(f"Found {len(file_links)} file(s) for [{source_name}] {title}")
 
@@ -358,7 +369,7 @@ def process_record(record: dict, source_name: str):
             print(f"Skipping HTML page instead of file: {file_url}")
             continue
 
-        safe_filename = sanitize_filename(original_filename)
+        safe_filename = sanitize_filename(original_filename)[:100]
 
         current_suffix = Path(safe_filename).suffix.lower()
         if not current_suffix:
@@ -406,8 +417,6 @@ def process_record(record: dict, source_name: str):
             print(f"Downloaded [{source_name}]: {destination}")
         else:
             print(f"Failed [{source_name}]: {file_url}")
-
-
 def main():
     print("Initializing database...")
     init_db()
