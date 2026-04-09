@@ -1,7 +1,7 @@
 import re
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse, parse_qs
+from urllib.parse import urljoin, urlparse, parse_qs, quote
 
 BASE_URL = "https://dataverse.no"
 SEARCH_URL = "https://dataverse.no/dataverse/root/"
@@ -26,6 +26,10 @@ def _extract_persistent_id(url: str) -> str:
     return ""
 
 
+def _build_datafile_download_url(file_pid: str) -> str:
+    return f"{BASE_URL}/api/access/datafile/:persistentId?persistentId={quote(file_pid, safe='')}"
+
+
 def _clean_text(text: str) -> str:
     return " ".join((text or "").split()).strip()
 
@@ -39,10 +43,6 @@ def _extract_year_from_text(text: str) -> str:
 
 
 def _fetch_dataset_metadata(session: requests.Session, dataset_url: str) -> dict:
-    """
-    Opens a dataset page and tries to extract a better title/description/year.
-    This is optional enrichment so main.py gets nicer metadata.
-    """
     meta = {
         "title": "",
         "description": "",
@@ -58,12 +58,10 @@ def _fetch_dataset_metadata(session: requests.Session, dataset_url: str) -> dict
 
     soup = BeautifulSoup(r.text, "html.parser")
 
-    # Better title from page heading if available
     heading = soup.select_one("h1") or soup.select_one("title")
     if heading:
         meta["title"] = _clean_text(heading.get_text(" ", strip=True))
 
-    # Try common description areas
     desc_candidates = [
         soup.select_one('meta[name="description"]'),
         soup.select_one('meta[property="og:description"]'),
@@ -84,19 +82,19 @@ def _fetch_dataset_metadata(session: requests.Session, dataset_url: str) -> dict
             meta["description"] = desc
             break
 
-    # Try to infer year from page text
     page_text = soup.get_text(" ", strip=True)
     meta["year"] = _extract_year_from_text(page_text)
 
     return meta
 
 
-def _extract_file_records_from_dataset(session: requests.Session, dataset_url: str, dataset_title: str, dataset_description: str, dataset_year: str) -> list[dict]:
-    """
-    From a dataset page, extract file.xhtml links.
-    These file pages contain the 'Access File' button that your main.py
-    can already follow and download from.
-    """
+def _extract_file_records_from_dataset(
+    session: requests.Session,
+    dataset_url: str,
+    dataset_title: str,
+    dataset_description: str,
+    dataset_year: str
+) -> list[dict]:
     records = []
     seen_file_ids = set()
 
@@ -125,14 +123,13 @@ def _extract_file_records_from_dataset(session: requests.Session, dataset_url: s
         seen_file_ids.add(file_pid)
 
         link_text = _clean_text(link.get_text(" ", strip=True))
-
-        # Prefer visible file title if present, else fall back to dataset title
         title = link_text or dataset_title or file_pid
 
         records.append({
             "id": file_pid,
             "title": title,
-            "url": file_page_url,          # main.py will open this page
+            "url": file_page_url,  # keep the human-readable file page
+            "download_url": _build_datafile_download_url(file_pid),  # actual file
             "year": dataset_year,
             "description": dataset_description,
         })
@@ -216,7 +213,6 @@ def search_dv(rows=None, per_page=10, max_pages=100):
                 seen_dataset_ids.add(dataset_id)
                 new_dataset_count += 1
 
-                # get better metadata from dataset page
                 meta = _fetch_dataset_metadata(session, dataset_url)
 
                 better_title = meta["title"] or dataset_title or dataset_id
@@ -244,7 +240,6 @@ def search_dv(rows=None, per_page=10, max_pages=100):
 
             print(f"  page {page}: {new_dataset_count} new datasets, {page_file_count} file pages found")
 
-            # if this page added no new datasets, stop
             if new_dataset_count == 0:
                 break
 
